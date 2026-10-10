@@ -3,25 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   AlertCircle, 
   CheckCircle2, 
-  Database, 
-  Info, 
-  Radio, 
   RefreshCw,
-  Layers,
-  Inbox
+  MapPin,
+  MessageSquare,
+  ShieldCheck,
+  Radio
 } from 'lucide-react';
 
-import Navbar from './components/Navbar';
-import StatsOverview from './components/StatsOverview';
-import FilterControls from './components/FilterControls';
-import SosCard from './components/SosCard';
-import SosTable from './components/SosTable';
+import CommunityNavbar from './components/CommunityNavbar';
+import CommunityFeed from './components/CommunityFeed';
 import SosMapView from './components/SosMapView';
-import MongoInspectorModal from './components/MongoInspectorModal';
 import SimulateSosModal from './components/SimulateSosModal';
 
-// Backend API URL (handles both proxy and direct port 3000 fallback)
-const API_BASE = '/api';
+// Backend API URL (defaults directly to deployed Render backend)
+const RAW_API_BASE = import.meta.env.VITE_API_BASE || 'https://crisos-backend.onrender.com/api';
+const API_BASE = RAW_API_BASE.replace(/\/+$/, '');
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -31,15 +27,15 @@ export default function App() {
   const [error, setError] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Filters & Controls State
+  // Social Community Controls State
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'urgent' | 'needs' | 'nearby' | 'resolved'
   const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [selectedStatus, setSelectedStatus] = useState('ALL');
-  const [sortBy, setSortBy] = useState('newest');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table' | 'map' | 'inspector'
+  const [selectedTag, setSelectedTag] = useState(null);
+  const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'urgent' | 'hops'
+  const [activeView, setActiveView] = useState('feed'); // 'feed' | 'map'
 
-  // Modals & Selected Item State
-  const [inspectingSos, setInspectingSos] = useState(null);
+  // Modals & Focus State
   const [focusedSos, setFocusedSos] = useState(null);
   const [isSimulateOpen, setIsSimulateOpen] = useState(false);
 
@@ -54,8 +50,7 @@ export default function App() {
     setError(null);
 
     try {
-      // Fetch messages list
-      const res = await fetch(`${API_BASE}/sos?limit=200`);
+      const res = await fetch(`${API_BASE}/sos?limit=250`);
       if (!res.ok) {
         throw new Error(`Server returned HTTP ${res.status}: ${res.statusText}`);
       }
@@ -78,7 +73,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Fetch error:', err);
-      setError(`Database connection issue: ${err.message}. Make sure CriSoS backend is running on port 3000.`);
+      setError(`Backend connection error (${API_BASE}): ${err.message}. If Render is waking from sleep, please allow ~30s and click Retry.`);
       setDbConnected(false);
     } finally {
       setLoading(false);
@@ -89,24 +84,45 @@ export default function App() {
     fetchData();
   }, [fetchData]);
 
-  // Distinct categories and statuses for filter dropdowns
-  const categories = useMemo(() => {
-    const set = new Set();
-    messages.forEach((m) => {
-      if (m.emergencyCategory) set.add(m.emergencyCategory);
-    });
-    return Array.from(set).sort();
+  // Derived counts for sidebar channels
+  const counts = useMemo(() => {
+    const total = messages.length;
+    const urgent = messages.filter(
+      (m) => m.deliveryStatus !== 'RESOLVED' && m.deliveryStatus !== 'DELIVERED'
+    ).length;
+    const needs = messages.filter(
+      (m) => Array.isArray(m.assistanceTypes) && m.assistanceTypes.length > 0
+    ).length;
+    const located = messages.filter(
+      (m) => typeof m.latitude === 'number' && typeof m.longitude === 'number'
+    ).length;
+    const resolved = messages.filter(
+      (m) => m.deliveryStatus === 'RESOLVED' || m.deliveryStatus === 'DELIVERED'
+    ).length;
+
+    return { total, urgent, needs, located, resolved };
   }, [messages]);
 
-  const statuses = useMemo(() => {
-    const set = new Set();
+  // Extract all unique tags and their frequency
+  const availableTags = useMemo(() => {
+    const tagMap = {};
     messages.forEach((m) => {
-      if (m.deliveryStatus) set.add(m.deliveryStatus);
+      if (Array.isArray(m.assistanceTypes)) {
+        m.assistanceTypes.forEach((t) => {
+          if (!t) return;
+          const clean = t.toUpperCase().trim();
+          tagMap[clean] = (tagMap[clean] || 0) + 1;
+        });
+      }
     });
-    return Array.from(set).sort();
+
+    return Object.entries(tagMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
   }, [messages]);
 
-  // Filter and sort messages
+  // Filter and sort messages for the community stream
   const filteredMessages = useMemo(() => {
     let result = [...messages];
 
@@ -124,6 +140,25 @@ export default function App() {
       });
     }
 
+    // Channel filter
+    if (activeFilter === 'urgent') {
+      result = result.filter(
+        (m) => m.deliveryStatus !== 'RESOLVED' && m.deliveryStatus !== 'DELIVERED'
+      );
+    } else if (activeFilter === 'needs') {
+      result = result.filter(
+        (m) => Array.isArray(m.assistanceTypes) && m.assistanceTypes.length > 0
+      );
+    } else if (activeFilter === 'nearby') {
+      result = result.filter(
+        (m) => typeof m.latitude === 'number' && typeof m.longitude === 'number'
+      );
+    } else if (activeFilter === 'resolved') {
+      result = result.filter(
+        (m) => m.deliveryStatus === 'RESOLVED' || m.deliveryStatus === 'DELIVERED'
+      );
+    }
+
     // Category filter
     if (selectedCategory !== 'ALL') {
       result = result.filter(
@@ -131,10 +166,12 @@ export default function App() {
       );
     }
 
-    // Status filter
-    if (selectedStatus !== 'ALL') {
+    // Tag filter
+    if (selectedTag) {
       result = result.filter(
-        (m) => m.deliveryStatus?.toUpperCase() === selectedStatus.toUpperCase()
+        (m) =>
+          Array.isArray(m.assistanceTypes) &&
+          m.assistanceTypes.some((t) => t.toUpperCase().trim() === selectedTag.toUpperCase().trim())
       );
     }
 
@@ -143,24 +180,23 @@ export default function App() {
       if (sortBy === 'newest') {
         return (b.createdAt || 0) - (a.createdAt || 0);
       }
-      if (sortBy === 'oldest') {
-        return (a.createdAt || 0) - (b.createdAt || 0);
+      if (sortBy === 'urgent') {
+        const isAActive = a.deliveryStatus !== 'RESOLVED';
+        const isBActive = b.deliveryStatus !== 'RESOLVED';
+        if (isAActive && !isBActive) return -1;
+        if (!isAActive && isBActive) return 1;
+        return (b.createdAt || 0) - (a.createdAt || 0);
       }
       if (sortBy === 'hops') {
         return (a.hopCount || 0) - (b.hopCount || 0);
-      }
-      if (sortBy === 'accuracy') {
-        const accA = a.locationAccuracyMeters ?? 9999;
-        const accB = b.locationAccuracyMeters ?? 9999;
-        return accA - accB;
       }
       return 0;
     });
 
     return result;
-  }, [messages, searchQuery, selectedCategory, selectedStatus, sortBy]);
+  }, [messages, searchQuery, activeFilter, selectedCategory, selectedTag, sortBy]);
 
-  // Update SOS status in MongoDB
+  // Update SOS status in MongoDB Atlas
   const handleUpdateStatus = async (id, newStatus, responderNotes) => {
     try {
       const res = await fetch(`${API_BASE}/sos/${id}/status`, {
@@ -173,17 +209,17 @@ export default function App() {
         throw new Error(data.error || 'Failed to update status');
       }
 
-      showToast(`Status for SOS ${id.slice(0, 8)} updated to ${newStatus}`);
-      fetchData();
-      if (inspectingSos && inspectingSos.id === id) {
-        setInspectingSos(data.data);
-      }
+      showToast(`Status updated to ${newStatus} for SOS alert!`);
+      // Update local state directly for instant snappy feedback
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, deliveryStatus: newStatus, responderNotes } : m))
+      );
     } catch (err) {
       alert(`Error updating status: ${err.message}`);
     }
   };
 
-  // Emit new SOS signal into MongoDB
+  // Broadcast new SOS signal into MongoDB
   const handleEmitSos = async (payload) => {
     const res = await fetch(`${API_BASE}/sos`, {
       method: 'POST',
@@ -192,50 +228,28 @@ export default function App() {
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Failed to save SOS to MongoDB');
+      throw new Error(data.error || 'Failed to broadcast SOS');
     }
 
-    showToast('New SOS alert saved directly into MongoDB Atlas!');
+    showToast('Emergency SOS posted to the community feed!');
     await fetchData();
   };
 
   const handleFocusMap = (sos) => {
     setFocusedSos(sos);
-    setViewMode('map');
-  };
-
-  const handleResetFilters = () => {
-    setSearchQuery('');
-    setSelectedCategory('ALL');
-    setSelectedStatus('ALL');
+    setActiveView('map');
   };
 
   return (
-    <div className="app-container">
+    <div className="community-app-container">
       {/* Toast Alert */}
       <AnimatePresence>
         {toastMessage && (
           <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            style={{
-              position: 'fixed',
-              top: '1rem',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 999,
-              background: '#0f172a',
-              color: '#ffffff',
-              padding: '0.65rem 1.25rem',
-              borderRadius: '8px',
-              boxShadow: '0 10px 15px -3px rgba(0,0,0,0.15)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '0.82rem',
-              fontWeight: 500,
-            }}
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="community-toast"
           >
             <CheckCircle2 size={16} style={{ color: '#22c55e' }} />
             <span>{toastMessage}</span>
@@ -243,40 +257,34 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Top Navbar */}
-      <Navbar
+      {/* Top Social Navigation Bar */}
+      <CommunityNavbar
         dbConnected={dbConnected}
         totalCount={messages.length}
         onRefresh={fetchData}
         loading={loading}
-        onOpenSimulate={() => setIsSimulateOpen(true)}
-        activeView={viewMode}
-        setActiveView={setViewMode}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        activeView={activeView}
+        setActiveView={setActiveView}
+        onOpenComposer={() => {
+          setActiveView('feed');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
       />
 
-      <main className="main-wrapper">
-        {/* Error Notification */}
+      {/* Main 3-Column Community Layout */}
+      <main className="community-main-layout">
+        {/* Connection Issue Banner */}
         {error && (
-          <div style={{
-            padding: '1rem',
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            color: '#991b1b',
-            borderRadius: '8px',
-            marginBottom: '1.25rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            fontSize: '0.85rem',
-          }}>
+          <div className="community-error-banner">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <AlertCircle size={18} />
               <span>{error}</span>
             </div>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="btn-retry"
               onClick={fetchData}
             >
               Retry Connection
@@ -284,115 +292,55 @@ export default function App() {
           </div>
         )}
 
-        {/* Stats KPI Overview */}
-        <StatsOverview stats={stats} rawMessages={messages} />
-
-        {/* Filters and Controls */}
-        <FilterControls
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          selectedCategory={selectedCategory}
-          setSelectedCategory={setSelectedCategory}
-          selectedStatus={selectedStatus}
-          setSelectedStatus={setSelectedStatus}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
-          categories={categories}
-          statuses={statuses}
-          filteredCount={filteredMessages.length}
-          totalCount={messages.length}
-          onResetFilters={handleResetFilters}
-        />
-
-        {/* Content View Switching */}
-        <AnimatePresence mode="wait">
-          {viewMode === 'grid' && (
-            <motion.div
-              key="grid"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-            >
-              {filteredMessages.length === 0 ? (
-                <div className="empty-state">
-                  <Inbox className="empty-icon" />
-                  <div style={{ fontWeight: 600, color: '#0f172a' }}>No SOS alerts found</div>
-                  <div style={{ fontSize: '0.8rem', maxWidth: '340px' }}>
-                    No alerts matched your current search filters. Try clearing the filter options.
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={handleResetFilters}
-                    style={{ marginTop: '0.5rem' }}
-                  >
-                    Reset Filters
-                  </button>
+        <div className="community-single-container">
+          {activeView === 'feed' ? (
+            <CommunityFeed
+              messages={filteredMessages}
+              activeFilter={activeFilter}
+              setActiveFilter={setActiveFilter}
+              selectedCategory={selectedCategory}
+              setSelectedCategory={setSelectedCategory}
+              selectedTag={selectedTag}
+              setSelectedTag={setSelectedTag}
+              sortBy={sortBy}
+              setSortBy={setSortBy}
+              onPostSos={handleEmitSos}
+              onResolve={handleUpdateStatus}
+              onFocusMap={handleFocusMap}
+              onShowToast={showToast}
+              totalRawCount={messages.length}
+              counts={counts}
+              availableTags={availableTags}
+            />
+          ) : (
+            <div className="full-map-wrapper">
+              <div className="map-view-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <MapPin size={18} style={{ color: '#dc2626' }} />
+                  <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                    Geospatial Emergency Radar Map
+                  </span>
                 </div>
-              ) : (
-                <div className="sos-grid">
-                  {filteredMessages.map((msg) => (
-                    <SosCard
-                      key={msg._id || msg.id}
-                      message={msg}
-                      onInspect={(item) => setInspectingSos(item)}
-                      onFocusMap={handleFocusMap}
-                      onResolve={handleUpdateStatus}
-                    />
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {viewMode === 'table' && (
-            <motion.div
-              key="table"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-            >
-              <SosTable
-                messages={filteredMessages}
-                onInspect={(item) => setInspectingSos(item)}
-                onFocusMap={handleFocusMap}
-                onResolve={handleUpdateStatus}
-              />
-            </motion.div>
-          )}
-
-          {viewMode === 'map' && (
-            <motion.div
-              key="map"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-            >
+                <button
+                  type="button"
+                  className="btn-back-to-feed"
+                  onClick={() => setActiveView('feed')}
+                >
+                  <MessageSquare size={14} />
+                  <span>Back to Community Feed</span>
+                </button>
+              </div>
               <SosMapView
                 messages={filteredMessages}
-                onInspect={(item) => setInspectingSos(item)}
+                onInspect={(sos) => handleFocusMap(sos)}
                 focusedSos={focusedSos}
               />
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
+        </div>
       </main>
 
-      {/* Inspect Document Modal */}
-      {inspectingSos && (
-        <MongoInspectorModal
-          sos={inspectingSos}
-          onClose={() => setInspectingSos(null)}
-          onUpdateStatus={handleUpdateStatus}
-        />
-      )}
-
-      {/* Simulate / Dispatch SOS Modal */}
+      {/* Dispatch SOS Modal (Fallback Trigger) */}
       <SimulateSosModal
         isOpen={isSimulateOpen}
         onClose={() => setIsSimulateOpen(false)}
