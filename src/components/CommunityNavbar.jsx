@@ -31,7 +31,7 @@ export default function CommunityNavbar({
             <Radio size={20} className="brand-logo-icon" />
             <span className="pulse-ping" />
           </motion.div>
-          <div>
+          <div className="brand-text-wrap">
             <div className="brand-name">
               CriSoS <span>Community</span>
             </div>
@@ -47,17 +47,21 @@ export default function CommunityNavbar({
             type="button"
             className={`header-tab-btn ${activeView === 'feed' ? 'active' : ''}`}
             onClick={() => setActiveView('feed')}
+            title="Community Feed"
           >
             <MessageSquare size={16} />
-            <span>Community Feed</span>
+            <span className="tab-label-desktop">Community Feed</span>
+            <span className="tab-label-mobile">Feed</span>
           </button>
           <button
             type="button"
             className={`header-tab-btn ${activeView === 'map' ? 'active' : ''}`}
             onClick={() => setActiveView('map')}
+            title="Crisis Map"
           >
             <Map size={16} />
-            <span>Crisis Map</span>
+            <span className="tab-label-desktop">Crisis Map</span>
+            <span className="tab-label-mobile">Map</span>
           </button>
         </div>
 
@@ -70,6 +74,7 @@ export default function CommunityNavbar({
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.94 }}
             title="Refresh community signals"
+            aria-label="Refresh community signals"
           >
             <motion.div
               animate={{ rotate: loading ? 360 : 0 }}
@@ -83,3 +88,4 @@ export default function CommunityNavbar({
     </header>
   );
 }
+
