@@ -14,6 +14,7 @@ import CommunityNavbar from './components/CommunityNavbar';
 import CommunityFeed from './components/CommunityFeed';
 import SosMapView from './components/SosMapView';
 import SimulateSosModal from './components/SimulateSosModal';
+import AuthPage from './components/AuthPage';
 
 // Backend API URL (defaults directly to deployed Render backend)
 const RAW_API_BASE = import.meta.env.VITE_API_BASE || 'https://crisos-backend.onrender.com/api';
@@ -27,13 +28,23 @@ export default function App() {
   const [error, setError] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
+  // User Authentication State
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('crisos_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
   // Social Community Controls State
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'urgent' | 'needs' | 'nearby' | 'resolved'
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedTag, setSelectedTag] = useState(null);
   const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'urgent' | 'hops'
-  const [activeView, setActiveView] = useState('feed'); // 'feed' | 'map'
+  const [activeView, setActiveView] = useState('feed'); // 'feed' | 'map' | 'auth'
 
   // Modals & Focus State
   const [focusedSos, setFocusedSos] = useState(null);
@@ -42,6 +53,47 @@ export default function App() {
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Verify auth session from cookie/token on mount
+  useEffect(() => {
+    const token = localStorage.getItem('crisos_token');
+    fetch(`${API_BASE}/auth/me`, {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && data.user) {
+          setCurrentUser(data.user);
+          localStorage.setItem('crisos_user', JSON.stringify(data.user));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleAuthSuccess = (user, token) => {
+    setCurrentUser(user);
+    if (user) {
+      localStorage.setItem('crisos_user', JSON.stringify(user));
+    }
+    if (token) {
+      localStorage.setItem('crisos_token', token);
+    }
+    showToast(`Welcome, @${user.username}!`);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {}
+    localStorage.removeItem('crisos_user');
+    localStorage.removeItem('crisos_token');
+    setCurrentUser(null);
+    showToast('Signed out of volunteer session.');
   };
 
   // Fetch messages and stats from MongoDB Atlas
@@ -210,12 +262,51 @@ export default function App() {
       }
 
       showToast(`Status updated to ${newStatus} for SOS alert!`);
-      // Update local state directly for instant snappy feedback
       setMessages((prev) =>
         prev.map((m) => (m.id === id ? { ...m, deliveryStatus: newStatus, responderNotes } : m))
       );
     } catch (err) {
       alert(`Error updating status: ${err.message}`);
+    }
+  };
+
+  // Volunteer handler
+  const handleVolunteer = async (id) => {
+    if (!currentUser) {
+      setActiveView('auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast('Please sign in or create an account to volunteer.');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('crisos_token');
+      const res = await fetch(`${API_BASE}/sos/${id}/volunteer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ username: currentUser.username }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update volunteer status');
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, ...data.data } : m))
+      );
+
+      showToast(
+        data.volunteered
+          ? `You volunteered to respond to SOS ${id.slice(0, 8)}!`
+          : `Volunteer response withdrawn for SOS ${id.slice(0, 8)}.`
+      );
+    } catch (err) {
+      alert(`Error volunteering: ${err.message}`);
     }
   };
 
@@ -263,82 +354,103 @@ export default function App() {
         totalCount={messages.length}
         onRefresh={fetchData}
         loading={loading}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
         activeView={activeView}
         setActiveView={setActiveView}
-        onOpenComposer={() => {
-          setActiveView('feed');
+        currentUser={currentUser}
+        onOpenAuthModal={() => {
+          setActiveView('auth');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
+        onLogout={handleLogout}
       />
 
-      {/* Main 3-Column Community Layout */}
-      <main className="community-main-layout">
-        {/* Connection Issue Banner */}
-        {error && (
-          <div className="community-error-banner">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertCircle size={18} />
-              <span>{error}</span>
-            </div>
-            <button
-              type="button"
-              className="btn-retry"
-              onClick={fetchData}
-            >
-              Retry Connection
-            </button>
-          </div>
-        )}
-
-        <div className="community-single-container">
-          {activeView === 'feed' ? (
-            <CommunityFeed
-              messages={filteredMessages}
-              activeFilter={activeFilter}
-              setActiveFilter={setActiveFilter}
-              selectedCategory={selectedCategory}
-              setSelectedCategory={setSelectedCategory}
-              selectedTag={selectedTag}
-              setSelectedTag={setSelectedTag}
-              sortBy={sortBy}
-              setSortBy={setSortBy}
-              onPostSos={handleEmitSos}
-              onResolve={handleUpdateStatus}
-              onFocusMap={handleFocusMap}
-              onShowToast={showToast}
-              totalRawCount={messages.length}
-              counts={counts}
-              availableTags={availableTags}
-            />
-          ) : (
-            <div className="full-map-wrapper">
-              <div className="map-view-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <MapPin size={18} style={{ color: '#dc2626' }} />
-                  <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                    Geospatial Emergency Radar Map
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="btn-back-to-feed"
-                  onClick={() => setActiveView('feed')}
-                >
-                  <MessageSquare size={14} />
-                  <span>Back to Community Feed</span>
-                </button>
+      {/* Dedicated Auth Page OR Feed / Map Layout */}
+      {activeView === 'auth' ? (
+        <AuthPage
+          onAuthSuccess={(user, token) => {
+            handleAuthSuccess(user, token);
+            setActiveView('feed');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onBack={() => {
+            setActiveView('feed');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          apiBase={API_BASE}
+        />
+      ) : (
+        <main className="community-main-layout">
+          {/* Connection Issue Banner */}
+          {error && (
+            <div className="community-error-banner">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={18} />
+                <span>{error}</span>
               </div>
-              <SosMapView
-                messages={filteredMessages}
-                onInspect={(sos) => handleFocusMap(sos)}
-                focusedSos={focusedSos}
-              />
+              <button
+                type="button"
+                className="btn-retry"
+                onClick={fetchData}
+              >
+                Retry Connection
+              </button>
             </div>
           )}
-        </div>
-      </main>
+
+          <div className="community-single-container">
+            {activeView === 'feed' ? (
+              <CommunityFeed
+                messages={filteredMessages}
+                activeFilter={activeFilter}
+                setActiveFilter={setActiveFilter}
+                selectedCategory={selectedCategory}
+                setSelectedCategory={setSelectedCategory}
+                selectedTag={selectedTag}
+                setSelectedTag={setSelectedTag}
+                sortBy={sortBy}
+                setSortBy={setSortBy}
+                onPostSos={handleEmitSos}
+                onResolve={handleUpdateStatus}
+                onFocusMap={handleFocusMap}
+                onShowToast={showToast}
+                totalRawCount={messages.length}
+                counts={counts}
+                availableTags={availableTags}
+                currentUser={currentUser}
+                onVolunteer={handleVolunteer}
+                onOpenAuthModal={() => {
+                  setActiveView('auth');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
+            ) : (
+              <div className="full-map-wrapper">
+                <div className="map-view-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <MapPin size={18} style={{ color: '#dc2626' }} />
+                    <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                      Geospatial Emergency Radar Map
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-back-to-feed"
+                    onClick={() => setActiveView('feed')}
+                  >
+                    <MessageSquare size={14} />
+                    <span>Back to Community Feed</span>
+                  </button>
+                </div>
+                <SosMapView
+                  messages={filteredMessages}
+                  onInspect={(sos) => handleFocusMap(sos)}
+                  focusedSos={focusedSos}
+                />
+              </div>
+            )}
+          </div>
+        </main>
+      )}
 
       {/* Dispatch SOS Modal (Fallback Trigger) */}
       <SimulateSosModal

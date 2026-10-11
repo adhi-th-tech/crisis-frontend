@@ -12,7 +12,8 @@ import {
   HeartPulse, 
   Activity, 
   HelpCircle,
-  ExternalLink
+  ExternalLink,
+  HeartHandshake
 } from 'lucide-react';
 import { formatDate, formatRelativeTime } from '../utils/formatters';
 
@@ -76,6 +77,9 @@ export default function CommunitySosPost({
   onFocusMap,
   onTagClick,
   onShowToast,
+  currentUser,
+  onVolunteer,
+  onOpenAuthModal,
 }) {
   const {
     id,
@@ -95,6 +99,23 @@ export default function CommunitySosPost({
   } = message;
 
   const [copied, setCopied] = useState(false);
+
+  const volunteers = Array.isArray(message.volunteers) ? message.volunteers : [];
+  const volunteerCount = message.volunteerCount ?? volunteers.length;
+  const isUserVolunteered = currentUser && volunteers.some(
+    (u) => u?.toLowerCase() === currentUser.username?.toLowerCase()
+  );
+
+  const handleVolunteerClick = () => {
+    if (!currentUser) {
+      if (onOpenAuthModal) onOpenAuthModal();
+      if (onShowToast) onShowToast('Please log in or sign up to volunteer for this emergency alert.');
+      return;
+    }
+    if (onVolunteer) {
+      onVolunteer(id);
+    }
+  };
 
   const theme = getCategoryTheme(emergencyCategory);
   const CategoryIcon = theme.icon;
@@ -278,24 +299,20 @@ export default function CommunitySosPost({
           <span>{copied ? 'Copied!' : 'Share'}</span>
         </button>
 
-        {/* Resolve SOS Button */}
+        {/* I Volunteer Button with Volunteer Count */}
         <div style={{ marginLeft: 'auto' }}>
-          {!isResolved ? (
-            <button
-              type="button"
-              className="btn-resolve-sos"
-              onClick={() => onResolve(id, 'RESOLVED')}
-              title="Mark distress call as handled / safe"
-            >
-              <CheckCircle2 size={14} />
-              <span>Mark Resolved</span>
-            </button>
-          ) : (
-            <span className="tag-resolved-pill">
-              <CheckCircle2 size={13} />
-              <span>Rescue Complete</span>
+          <button
+            type="button"
+            className={`btn-volunteer ${isUserVolunteered ? 'volunteered' : ''}`}
+            onClick={handleVolunteerClick}
+            title={isUserVolunteered ? 'You volunteered! Click to withdraw offer' : 'Volunteer to respond to this emergency alert'}
+          >
+            <HeartHandshake size={15} />
+            <span>{isUserVolunteered ? 'Volunteered' : 'I Volunteer'}</span>
+            <span className="volunteer-count-badge" title={`${volunteerCount} community responder(s) volunteered`}>
+              {volunteerCount}
             </span>
-          )}
+          </button>
         </div>
       </div>
     </motion.article>

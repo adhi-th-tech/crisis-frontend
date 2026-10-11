@@ -21,6 +21,9 @@ export default function CommunityFeed({
   totalRawCount,
   counts = {},
   availableTags = [],
+  currentUser,
+  onVolunteer,
+  onOpenAuthModal,
 }) {
   const isFiltered = selectedTag || selectedCategory !== 'ALL' || activeFilter !== 'all';
 
@@ -64,6 +67,9 @@ export default function CommunityFeed({
                 onFocusMap={onFocusMap}
                 onTagClick={(tag) => setSelectedTag(tag)}
                 onShowToast={onShowToast}
+                currentUser={currentUser}
+                onVolunteer={onVolunteer}
+                onOpenAuthModal={onOpenAuthModal}
               />
             ))}
           </AnimatePresence>
