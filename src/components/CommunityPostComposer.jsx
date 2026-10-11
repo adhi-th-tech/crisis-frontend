@@ -122,7 +122,8 @@ export default function CommunityPostComposer({ onPostSos }) {
         </div>
         {!isExpanded ? (
           <div className="composer-prompt">
-            <span>Broadcast an Emergency SOS or Request Help to the Community...</span>
+            <span className="composer-prompt-desktop">Broadcast an Emergency SOS or Request Help to the Community...</span>
+            <span className="composer-prompt-mobile">Broadcast Emergency SOS...</span>
             <button
               type="button"
               className="composer-trigger-btn"
@@ -264,7 +265,7 @@ export default function CommunityPostComposer({ onPostSos }) {
                 📡 Broadcasting via CriSoS Mesh & MongoDB Atlas
               </span>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div className="composer-footer-buttons">
                 <button
                   type="button"
                   className="btn-secondary-sm"
