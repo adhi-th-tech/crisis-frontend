@@ -14,6 +14,7 @@ import CommunityNavbar from './components/CommunityNavbar';
 import CommunityFeed from './components/CommunityFeed';
 import SosMapView from './components/SosMapView';
 import SimulateSosModal from './components/SimulateSosModal';
+import AuthModal from './components/AuthModal';
 
 // Backend API URL (defaults directly to deployed Render backend)
 const RAW_API_BASE = import.meta.env.VITE_API_BASE || 'https://crisos-backend.onrender.com/api';
@@ -26,6 +27,17 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+
+  // User Authentication State
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('crisos_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Social Community Controls State
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,6 +54,47 @@ export default function App() {
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Verify auth session from cookie/token on mount
+  useEffect(() => {
+    const token = localStorage.getItem('crisos_token');
+    fetch(`${API_BASE}/auth/me`, {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && data.user) {
+          setCurrentUser(data.user);
+          localStorage.setItem('crisos_user', JSON.stringify(data.user));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleAuthSuccess = (user, token) => {
+    setCurrentUser(user);
+    if (user) {
+      localStorage.setItem('crisos_user', JSON.stringify(user));
+    }
+    if (token) {
+      localStorage.setItem('crisos_token', token);
+    }
+    showToast(`Welcome, @${user.username}!`);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {}
+    localStorage.removeItem('crisos_user');
+    localStorage.removeItem('crisos_token');
+    setCurrentUser(null);
+    showToast('Signed out of volunteer session.');
   };
 
   // Fetch messages and stats from MongoDB Atlas
@@ -210,12 +263,50 @@ export default function App() {
       }
 
       showToast(`Status updated to ${newStatus} for SOS alert!`);
-      // Update local state directly for instant snappy feedback
       setMessages((prev) =>
         prev.map((m) => (m.id === id ? { ...m, deliveryStatus: newStatus, responderNotes } : m))
       );
     } catch (err) {
       alert(`Error updating status: ${err.message}`);
+    }
+  };
+
+  // Volunteer handler
+  const handleVolunteer = async (id) => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      showToast('Please sign in or create an account to volunteer.');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('crisos_token');
+      const res = await fetch(`${API_BASE}/sos/${id}/volunteer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ username: currentUser.username }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update volunteer status');
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, ...data.data } : m))
+      );
+
+      showToast(
+        data.volunteered
+          ? `You volunteered to respond to SOS ${id.slice(0, 8)}!`
+          : `Volunteer response withdrawn for SOS ${id.slice(0, 8)}.`
+      );
+    } catch (err) {
+      alert(`Error volunteering: ${err.message}`);
     }
   };
 
@@ -263,17 +354,14 @@ export default function App() {
         totalCount={messages.length}
         onRefresh={fetchData}
         loading={loading}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
         activeView={activeView}
         setActiveView={setActiveView}
-        onOpenComposer={() => {
-          setActiveView('feed');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onLogout={handleLogout}
       />
 
-      {/* Main 3-Column Community Layout */}
+      {/* Main Single Column Community Layout */}
       <main className="community-main-layout">
         {/* Connection Issue Banner */}
         {error && (
@@ -311,6 +399,9 @@ export default function App() {
               totalRawCount={messages.length}
               counts={counts}
               availableTags={availableTags}
+              currentUser={currentUser}
+              onVolunteer={handleVolunteer}
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
             />
           ) : (
             <div className="full-map-wrapper">
@@ -339,6 +430,14 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* Authentication Modal (Sign In & Sign Up) */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+        apiBase={API_BASE}
+      />
 
       {/* Dispatch SOS Modal (Fallback Trigger) */}
       <SimulateSosModal

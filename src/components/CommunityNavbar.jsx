@@ -4,7 +4,11 @@ import {
   Radio, 
   RefreshCw, 
   Map, 
-  MessageSquare 
+  MessageSquare,
+  User,
+  LogIn,
+  LogOut,
+  HeartHandshake
 } from 'lucide-react';
 
 export default function CommunityNavbar({
@@ -12,11 +16,11 @@ export default function CommunityNavbar({
   totalCount,
   onRefresh,
   loading,
-  searchQuery,
-  setSearchQuery,
   activeView,
   setActiveView,
-  onOpenComposer,
+  currentUser,
+  onOpenAuthModal,
+  onLogout,
 }) {
   return (
     <header className="community-header">
@@ -61,8 +65,40 @@ export default function CommunityNavbar({
           </button>
         </div>
 
-        {/* Right Actions: Quick Refresh */}
+        {/* Right Actions: Auth & Quick Refresh */}
         <div className="header-action-group">
+          {currentUser ? (
+            <div className="navbar-user-section">
+              <div className="navbar-user-pill">
+                <div className="navbar-user-avatar">
+                  {currentUser.username.substring(0, 1).toUpperCase()}
+                </div>
+                <div className="navbar-user-info">
+                  <span className="navbar-user-name">@{currentUser.username}</span>
+                  <span className="navbar-volunteer-badge">Volunteer</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-auth-logout"
+                onClick={onLogout}
+                title="Log Out"
+              >
+                <LogOut size={14} />
+                <span>Logout</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn-auth-login"
+              onClick={onOpenAuthModal}
+            >
+              <LogIn size={14} />
+              <span>Login / Sign Up</span>
+            </button>
+          )}
+
           <motion.button
             className="btn-icon-subtle"
             onClick={onRefresh}
