@@ -14,7 +14,7 @@ import CommunityNavbar from './components/CommunityNavbar';
 import CommunityFeed from './components/CommunityFeed';
 import SosMapView from './components/SosMapView';
 import SimulateSosModal from './components/SimulateSosModal';
-import AuthModal from './components/AuthModal';
+import AuthPage from './components/AuthPage';
 
 // Backend API URL (defaults directly to deployed Render backend)
 const RAW_API_BASE = import.meta.env.VITE_API_BASE || 'https://crisos-backend.onrender.com/api';
@@ -37,7 +37,6 @@ export default function App() {
       return null;
     }
   });
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Social Community Controls State
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,7 +44,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedTag, setSelectedTag] = useState(null);
   const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'urgent' | 'hops'
-  const [activeView, setActiveView] = useState('feed'); // 'feed' | 'map'
+  const [activeView, setActiveView] = useState('feed'); // 'feed' | 'map' | 'auth'
 
   // Modals & Focus State
   const [focusedSos, setFocusedSos] = useState(null);
@@ -274,7 +273,8 @@ export default function App() {
   // Volunteer handler
   const handleVolunteer = async (id) => {
     if (!currentUser) {
-      setIsAuthModalOpen(true);
+      setActiveView('auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       showToast('Please sign in or create an account to volunteer.');
       return;
     }
@@ -357,87 +357,100 @@ export default function App() {
         activeView={activeView}
         setActiveView={setActiveView}
         currentUser={currentUser}
-        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenAuthModal={() => {
+          setActiveView('auth');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
         onLogout={handleLogout}
       />
 
-      {/* Main Single Column Community Layout */}
-      <main className="community-main-layout">
-        {/* Connection Issue Banner */}
-        {error && (
-          <div className="community-error-banner">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertCircle size={18} />
-              <span>{error}</span>
-            </div>
-            <button
-              type="button"
-              className="btn-retry"
-              onClick={fetchData}
-            >
-              Retry Connection
-            </button>
-          </div>
-        )}
-
-        <div className="community-single-container">
-          {activeView === 'feed' ? (
-            <CommunityFeed
-              messages={filteredMessages}
-              activeFilter={activeFilter}
-              setActiveFilter={setActiveFilter}
-              selectedCategory={selectedCategory}
-              setSelectedCategory={setSelectedCategory}
-              selectedTag={selectedTag}
-              setSelectedTag={setSelectedTag}
-              sortBy={sortBy}
-              setSortBy={setSortBy}
-              onPostSos={handleEmitSos}
-              onResolve={handleUpdateStatus}
-              onFocusMap={handleFocusMap}
-              onShowToast={showToast}
-              totalRawCount={messages.length}
-              counts={counts}
-              availableTags={availableTags}
-              currentUser={currentUser}
-              onVolunteer={handleVolunteer}
-              onOpenAuthModal={() => setIsAuthModalOpen(true)}
-            />
-          ) : (
-            <div className="full-map-wrapper">
-              <div className="map-view-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <MapPin size={18} style={{ color: '#dc2626' }} />
-                  <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                    Geospatial Emergency Radar Map
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="btn-back-to-feed"
-                  onClick={() => setActiveView('feed')}
-                >
-                  <MessageSquare size={14} />
-                  <span>Back to Community Feed</span>
-                </button>
+      {/* Dedicated Auth Page OR Feed / Map Layout */}
+      {activeView === 'auth' ? (
+        <AuthPage
+          onAuthSuccess={(user, token) => {
+            handleAuthSuccess(user, token);
+            setActiveView('feed');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onBack={() => {
+            setActiveView('feed');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          apiBase={API_BASE}
+        />
+      ) : (
+        <main className="community-main-layout">
+          {/* Connection Issue Banner */}
+          {error && (
+            <div className="community-error-banner">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={18} />
+                <span>{error}</span>
               </div>
-              <SosMapView
-                messages={filteredMessages}
-                onInspect={(sos) => handleFocusMap(sos)}
-                focusedSos={focusedSos}
-              />
+              <button
+                type="button"
+                className="btn-retry"
+                onClick={fetchData}
+              >
+                Retry Connection
+              </button>
             </div>
           )}
-        </div>
-      </main>
 
-      {/* Authentication Modal (Sign In & Sign Up) */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onAuthSuccess={handleAuthSuccess}
-        apiBase={API_BASE}
-      />
+          <div className="community-single-container">
+            {activeView === 'feed' ? (
+              <CommunityFeed
+                messages={filteredMessages}
+                activeFilter={activeFilter}
+                setActiveFilter={setActiveFilter}
+                selectedCategory={selectedCategory}
+                setSelectedCategory={setSelectedCategory}
+                selectedTag={selectedTag}
+                setSelectedTag={setSelectedTag}
+                sortBy={sortBy}
+                setSortBy={setSortBy}
+                onPostSos={handleEmitSos}
+                onResolve={handleUpdateStatus}
+                onFocusMap={handleFocusMap}
+                onShowToast={showToast}
+                totalRawCount={messages.length}
+                counts={counts}
+                availableTags={availableTags}
+                currentUser={currentUser}
+                onVolunteer={handleVolunteer}
+                onOpenAuthModal={() => {
+                  setActiveView('auth');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
+            ) : (
+              <div className="full-map-wrapper">
+                <div className="map-view-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <MapPin size={18} style={{ color: '#dc2626' }} />
+                    <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                      Geospatial Emergency Radar Map
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-back-to-feed"
+                    onClick={() => setActiveView('feed')}
+                  >
+                    <MessageSquare size={14} />
+                    <span>Back to Community Feed</span>
+                  </button>
+                </div>
+                <SosMapView
+                  messages={filteredMessages}
+                  onInspect={(sos) => handleFocusMap(sos)}
+                  focusedSos={focusedSos}
+                />
+              </div>
+            )}
+          </div>
+        </main>
+      )}
 
       {/* Dispatch SOS Modal (Fallback Trigger) */}
       <SimulateSosModal

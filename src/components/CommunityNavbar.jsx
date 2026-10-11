@@ -91,7 +91,7 @@ export default function CommunityNavbar({
           ) : (
             <button
               type="button"
-              className="btn-auth-login"
+              className={`btn-auth-login ${activeView === 'auth' ? 'active' : ''}`}
               onClick={onOpenAuthModal}
             >
               <LogIn size={14} />

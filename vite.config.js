@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: process.env.VITE_LOCAL_BACKEND ? 'http://localhost:3000' : 'https://crisos-backend.onrender.com',
+        target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
       },
